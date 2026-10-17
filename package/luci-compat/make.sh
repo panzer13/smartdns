@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -50,10 +50,12 @@ build()
 
 	mkdir -p $ROOT
 	cp $CURR_DIR/* $ROOT/ -af
+	cp $CURR_DIR/../tool $ROOT/ -af
 	cd $ROOT/
 	build_tool
 	mkdir $ROOT/root/usr/lib/lua/ -p
 	cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
+	cp $ROOT/files/usr $ROOT/root/ -af
 	
 	#Generate Language
 	$PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo
@@ -75,7 +77,7 @@ build()
 	cd $ROOT
 
 	tar zcf $ROOT/data.tar.gz -C root .
-	tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk control.tar.gz data.tar.gz debian-binary
+	tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk ./control.tar.gz ./data.tar.gz ./debian-binary
 
 	rm -fr $ROOT/
 }
