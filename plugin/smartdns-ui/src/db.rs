@@ -168,8 +168,10 @@ pub struct DomainListGetParam {
     pub domain: Option<String>,
     pub domain_filter_mode: Option<String>,
     pub domain_type: Option<u32>,
+    pub domain_type_filter_mode: Option<String>,
     pub client: Option<String>,
     pub domain_group: Option<String>,
+    pub domain_group_filter_mode: Option<String>,
     pub reply_code: Option<u16>,
     pub timestamp_before: Option<u64>,
     pub timestamp_after: Option<u64>,
@@ -188,8 +190,10 @@ impl DomainListGetParam {
             domain: None,
             domain_filter_mode: None,
             domain_type: None,
+            domain_type_filter_mode: None,
             client: None,
             domain_group: None,
+            domain_group_filter_mode: None,
             reply_code: None,
             timestamp_before: None,
             timestamp_after: None,
@@ -646,9 +650,9 @@ impl DB {
 
         for d in data {
             let ret = stmt.execute(rusqlite::params![
-                &d.timestamp.to_string(),
+                &(d.timestamp as i64),
                 &d.domain,
-                &d.domain_type.to_string(),
+                &(d.domain_type as i64),
                 &d.client,
                 &d.domain_group,
                 &d.reply_code,
@@ -801,7 +805,13 @@ impl DB {
         }
 
         if let Some(v) = &param.domain_type {
-            sql_where.push("domain_type = ?".to_string());
+            let mode = param.domain_type_filter_mode.as_deref().unwrap_or("equals").to_lowercase();
+            let op = match mode.as_str() {
+                "notequals" => "<>",
+                "equals" => "=",
+                _ => return Err("domain_type_filter_mode param error".into()),
+            };
+            sql_where.push(format!("domain_type {} ?", op));
             sql_param.push(v.to_string());
             order_timestamp_first = false;
         }
@@ -813,8 +823,18 @@ impl DB {
         }
 
         if let Some(v) = &param.domain_group {
-            sql_where.push("domain_group = ?".to_string());
-            sql_param.push(v.clone());
+            let mode = param.domain_group_filter_mode.as_deref().unwrap_or("equals").to_lowercase();
+            let op = match mode.as_str() {
+                "notequals" => "<>",
+                "equals" => "=",
+                _ => return Err("domain_group_filter_mode param error".into()),
+            };
+            if v == "default" {
+                sql_where.push(format!("domain_group {} ''", op));
+            } else {
+                sql_where.push(format!("domain_group {} ?", op));
+                sql_param.push(v.clone());
+            }
             order_timestamp_first = false;
         }
 
@@ -1013,10 +1033,14 @@ impl DB {
         };
 
         let timestamp_now = smartdns::get_utc_time_ms();
-        let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
-        self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
+        let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ?1 AND timestamp <= ?2 GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
+        self.debug_query_plan(
+            &conn,
+            sql.to_string(),
+            &vec![timestamp.to_string(), timestamp_now.to_string()],
+        );
         let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([timestamp.to_string()], |row| {
+        let rows = stmt.query_map([timestamp.to_string(), timestamp_now.to_string()], |row| {
             Ok(ClientQueryCount {
                 client_ip: row.get(0)?,
                 count: row.get(1)?,
@@ -1137,6 +1161,7 @@ impl DB {
                     domain_daily_count \
                  WHERE \
                     timestamp >= strftime('%s', 'now') * 1000 - ? * 1000 \
+                    AND timestamp <= strftime('%s', 'now') * 1000
                  ORDER BY \
                     timestamp DESC;\
                  ",
@@ -1206,6 +1231,7 @@ impl DB {
                     domain_hourly_count \
                  WHERE \
                     timestamp >= strftime('%s', 'now') * 1000 - ? * 1000 \
+                    AND timestamp <= strftime('%s', 'now') * 1000
                  ORDER BY \
                     timestamp DESC;\
                  ";
@@ -1247,10 +1273,14 @@ impl DB {
         };
 
         let timestamp_now = smartdns::get_utc_time_ms();
-        let sql = "SELECT domain, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 20";
-        self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
+        let sql = "SELECT domain, COUNT(*) FROM domain WHERE timestamp >= ?1 AND timestamp <= ?2 GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 20";
+        self.debug_query_plan(
+            &conn,
+            sql.to_string(),
+            &vec![timestamp.to_string(), timestamp_now.to_string()],
+        );
         let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([timestamp.to_string()], |row| {
+        let rows = stmt.query_map([timestamp.to_string(), timestamp_now.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
                 count: row.get(1)?,
@@ -1302,7 +1332,7 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
 
-        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list DESC LIMIT ?")?;
+        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list ORDER BY count DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
